@@ -122,7 +122,7 @@
  * initial import into CVS
  *
  */
-
+#define WINDOWS_IGNORE_PACKING_MISMATCH
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -138,6 +138,8 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+
+#include "getopt.cpp" // Include your getopt implementation
 
 #ifdef _WIN64
 typedef __int64 ssize_t;
@@ -281,7 +283,7 @@ int main(int argc, char *argv[]) {
         sprintf(tmp.name, "\\\\.\\PhysicalDrive%d", i);
 
         // open physical drive i  (must not set GENERIC_READ or GENERIC_WRITE, as otherwise the device will be woken up)
-        HANDLE hDevice = CreateFile(tmp.name, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+        HANDLE hDevice = CreateFileA(tmp.name, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
         if (hDevice == INVALID_HANDLE_VALUE) {
             DWORD error = GetLastError();
             switch (error) {
@@ -460,7 +462,7 @@ static void spindown_disk(const char *name)
     memcpy(&io_req, "\x1b\x00\x00\x00\x00\x00", 6);
     memset(&io_repl, 0x00, sizeof(io_repl));
 
-    HANDLE hDevice = CreateFile(name,        // drive to open
+    HANDLE hDevice = CreateFileA(name,        // drive to open
         GENERIC_READ | GENERIC_WRITE,        // read and write access to the drive => set to 0 if only metadata is to be queried
         FILE_SHARE_READ | FILE_SHARE_WRITE,  // share mode           
         NULL,                                // default security attributes
@@ -508,7 +510,7 @@ static int ata_check_power_mode(const char *name)
 {
     // open physical drive i  (if GENERIC_READ or GENERIC_WRITE is set, the device will be woken up)
     //HANDLE hDevice = CreateFile(name, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);  
-    HANDLE hDevice = CreateFile(name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE hDevice = CreateFileA(name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
     //HANDLE hDevice = CreateFile(name, READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
     //HANDLE hDevice = CreateFile(name, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (hDevice == INVALID_HANDLE_VALUE) {
@@ -564,7 +566,7 @@ static int ata_check_power_mode(const char *name)
 static bool ata_set_idle_mode(const char *name)
 {
     // open physical drive i
-    HANDLE hDevice = CreateFile(name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE hDevice = CreateFileA(name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
     if (hDevice == INVALID_HANDLE_VALUE) {
         DWORD error = GetLastError();
         switch (error) {
@@ -612,7 +614,7 @@ static bool ata_set_idle_mode(const char *name)
 static bool ata_set_standby_mode(const char *name)
 {
     // open physical drive i
-    HANDLE hDevice = CreateFile(name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE hDevice = CreateFileA(name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
     if (hDevice == INVALID_HANDLE_VALUE) {
         DWORD error = GetLastError();
         switch (error) {
