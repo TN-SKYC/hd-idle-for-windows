@@ -1,3 +1,5 @@
+//update - compiled for WinSrv2022.
+
 # hd-idle-for-windows -  a hard disk idle spin-down utility
 A Windows port of the hd-idle classic, originally written by Christian Müller in 2007.
 
