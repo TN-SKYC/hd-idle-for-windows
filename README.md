@@ -1,5 +1,22 @@
-//update - compiled for WinSrv2022.
+## Dashboard UI Guide
 
+The main interface provides a dual-layer view, showing both what the software *intends* to do and what the hardware is *actually* doing.
+
+| Column | Description |
+| :--- | :--- |
+| **Model** | The hardware identification string retrieved directly from the device firmware (e.g., `WDC WD60EMAZ-11LW3B0`). |
+| **Status** | The software's internal tracking state (`Active` or `Asleep`). |
+| **Timer** | A live countdown (in seconds) until the next spin-down command is issued. Resets instantly upon any file access. Shows `0s` when asleep or `N/A` for SSDs. |
+| **Partitions** | The logical drive letters assigned to the physical disk by Windows (e.g., `D:`, `E:`). |
+| **Hardware Check** | The physical state of the drive's motor, queried directly from the ATA registers. Displays `Active`, `Standby` (motor stopped), or `SSD - Unsupported`. |
+
+### Manual Controls
+
+* **Force Sleep:** Selecting a drive from the list and clicking this button will immediately issue the SCSI spin-down command (`0x1B`), bypassing the countdown timer. 
+  > **Note:** This button is automatically disabled when an SSD is selected to prevent unsupported ATA commands from being sent to NVMe or Flash controllers.
+
+
+---
 # hd-idle-for-windows -  a hard disk idle spin-down utility
 A Windows port of the hd-idle classic, originally written by Christian Müller in 2007.
 
