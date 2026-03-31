@@ -3,7 +3,6 @@ out/
 doc/
 .vs/
 .vscode/
-x64/
 Debug/
 Release/
 *.tar
