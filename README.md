@@ -1,3 +1,6 @@
+Rewritten to be a win app with GUI and sit in tray.
+
+
 ## Dashboard UI Guide
 
 The main interface provides a dual-layer view, showing both what the software *intends* to do and what the hardware is *actually* doing.
