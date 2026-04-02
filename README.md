@@ -1,4 +1,4 @@
-Rewritten to be a win app with GUI and sit in tray.
+Rewritten to be a win app with GUI and sit in tray. Executable attached.
 
 
 ## Dashboard UI Guide
