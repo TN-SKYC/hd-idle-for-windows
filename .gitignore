@@ -1,6 +1,7 @@
 build/
 out/
 doc/
+.idea
 .vs/
 .vscode/
 Debug/

@@ -13,7 +13,7 @@
 #include <string>
 #include <stdio.h>
 #include <stddef.h>
-#include <mutex> // NEW: For thread safety
+#include <mutex>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -46,7 +46,7 @@ struct DriveInfo {
 
 // --- Globals ---
 std::vector<DriveInfo*> g_drives;
-std::mutex g_driveMutex; // NEW: Protects g_drives from race conditions
+std::mutex g_driveMutex;
 
 int g_idle_limit = 60;
 HWND g_hwndList = NULL;
@@ -116,13 +116,16 @@ std::string CheckAtaPowerMode(HANDLE h, int diskIdx) {
 }
 
 void SpinDown(DriveInfo* d) {
-    if (!d || d->is_sleeping || d->isSSD) return;
+    if (!d || d->isSSD) return;
+
+    // Do the slow I/O without holding the lock! 
+    // This prevents the UI from freezing.
     SCSI_PASS_THROUGH_DIRECT sptd = { sizeof(SCSI_PASS_THROUGH_DIRECT) };
     sptd.CdbLength = 6; sptd.DataIn = SCSI_IOCTL_DATA_OUT; sptd.TimeOutValue = 5;
     sptd.Cdb[0] = 0x1B; sptd.Cdb[4] = 0x00;
     DWORD b; DeviceIoControl(d->handle, IOCTL_SCSI_PASS_THROUGH_DIRECT, &sptd, sizeof(sptd), &sptd, sizeof(sptd), &b, NULL);
 
-    // We lock here specifically because we are modifying shared state
+    // Now lock just to update the state
     std::lock_guard<std::mutex> lock(g_driveMutex);
     d->is_sleeping = true;
 }
@@ -153,7 +156,7 @@ std::string GetDriveLetters(DWORD diskNo) {
 int CALLBACK CompareDrives(LPARAM lp1, LPARAM lp2, LPARAM lpSort) {
     DriveInfo* d1 = (DriveInfo*)lp1;
     DriveInfo* d2 = (DriveInfo*)lp2;
-    std::lock_guard<std::mutex> lock(g_driveMutex); // NEW: Lock during sort comparisons
+    std::lock_guard<std::mutex> lock(g_driveMutex);
 
     int res = 0;
     switch (lpSort) {
@@ -168,7 +171,7 @@ int CALLBACK CompareDrives(LPARAM lp1, LPARAM lp2, LPARAM lpSort) {
 void UpdateUI() {
     int selIdx = ListView_GetNextItem(g_hwndList, -1, LVNI_SELECTED);
 
-    std::lock_guard<std::mutex> lock(g_driveMutex); // NEW: Lock before reading states for the UI
+    std::lock_guard<std::mutex> lock(g_driveMutex);
 
     for (int i = 0; i < ListView_GetItemCount(g_hwndList); i++) {
         LVITEM lvi = { 0 }; lvi.mask = LVIF_PARAM; lvi.iItem = i;
@@ -257,7 +260,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (s != -1) {
                 LVITEM lvi = { 0 }; lvi.mask = LVIF_PARAM; lvi.iItem = s;
                 ListView_GetItem(g_hwndList, &lvi);
-                // Call spin down (mutex handles the lock internally)
                 SpinDown((DriveInfo*)lvi.lParam);
             }
         }
@@ -276,7 +278,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
         break;
     case WM_CLOSE: ShowWindow(hWnd, SW_HIDE); return 0;
     case WM_DESTROY: {
-        // NEW: Proper Resource Cleanup
         KillTimer(hWnd, ID_TIMER_UPDATE);
         Shell_NotifyIcon(NIM_DELETE, &nid);
 
@@ -296,7 +297,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 DWORD WINAPI MonitorThread(LPVOID) {
-    // Initial sync
     {
         std::lock_guard<std::mutex> lock(g_driveMutex);
         for (auto d : g_drives) d->last_io_count = GetTotalIOCount(d->handle);
@@ -305,25 +305,33 @@ DWORD WINAPI MonitorThread(LPVOID) {
     while (true) {
         Sleep(6000);
 
-        // Notice we don't lock the whole loop! DeviceIoControl takes time.
-        // We do the slow hardware queries *outside* the lock.
         for (size_t i = 0; i < g_drives.size(); i++) {
             DriveInfo* d = g_drives[i];
             if (d->isSSD) continue;
 
+            // Slow hardware queries happen OUTSIDE the lock
             std::string currentStatus = CheckAtaPowerMode(d->handle, d->diskIdx);
             LONGLONG currentIO = GetTotalIOCount(d->handle);
 
-            // Now we lock briefly to update the shared data
-            std::lock_guard<std::mutex> lock(g_driveMutex);
-            d->hwStatus = currentStatus;
+            bool needsSleep = false;
 
-            if (currentIO > d->last_io_count && currentIO != -1) {
-                d->is_sleeping = false;
-                d->last_access = GetTickCount64();
-                d->last_io_count = currentIO;
-            }
-            else if (!d->is_sleeping && (GetTickCount64() - d->last_access) / 1000 >= (DWORD)g_idle_limit) {
+            // Scope block: Briefly lock to update shared variables
+            {
+                std::lock_guard<std::mutex> lock(g_driveMutex);
+                d->hwStatus = currentStatus;
+
+                if (currentIO > d->last_io_count && currentIO != -1) {
+                    d->is_sleeping = false;
+                    d->last_access = GetTickCount64();
+                    d->last_io_count = currentIO;
+                }
+                else if (!d->is_sleeping && (GetTickCount64() - d->last_access) / 1000 >= (DWORD)g_idle_limit) {
+                    needsSleep = true;
+                }
+            } // Lock releases here
+
+            // Call SpinDown OUTSIDE the lock to prevent the double-lock crash
+            if (needsSleep) {
                 SpinDown(d);
             }
         }
@@ -349,7 +357,6 @@ int APIENTRY WinMain(HINSTANCE h, HINSTANCE, LPSTR, int) {
         }
     }
 
-    // Partition mapping
     for (auto d : g_drives) {
         std::string res = ""; char drv[256];
         if (GetLogicalDriveStrings(sizeof(drv), drv)) {
@@ -370,8 +377,8 @@ int APIENTRY WinMain(HINSTANCE h, HINSTANCE, LPSTR, int) {
     }
 
     WNDCLASS wc = { 0 }; wc.lpfnWndProc = WndProc; wc.hInstance = h; wc.hbrBackground = (HBRUSH)(COLOR_BTNFACE + 1);
-    wc.lpszClassName = "HDIDLE_V24"; RegisterClass(&wc);
-    HWND hWnd = CreateWindow("HDIDLE_V24", "HD-Idle Dashboard", (DWORD)(WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX), CW_USEDEFAULT, CW_USEDEFAULT, 100, 100, 0, 0, h, 0);
+    wc.lpszClassName = "HDIDLE_V25"; RegisterClass(&wc);
+    HWND hWnd = CreateWindow("HDIDLE_V25", "HD-Idle Dashboard", (DWORD)(WS_OVERLAPPEDWINDOW & ~WS_MAXIMIZEBOX), CW_USEDEFAULT, CW_USEDEFAULT, 100, 100, 0, 0, h, 0);
     nid.cbSize = sizeof(nid); nid.hWnd = hWnd; nid.uID = 1; nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_TRAYICON; nid.hIcon = LoadIcon(h, MAKEINTRESOURCE(IDI_ICON2));
     if (!nid.hIcon) nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
